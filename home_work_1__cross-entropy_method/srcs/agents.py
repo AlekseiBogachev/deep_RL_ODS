@@ -5,7 +5,7 @@ import time
 
 class Agent():
 
-    def __init__(self, n_actions, seed, vis_delay=0.1):
+    def __init__(self, n_actions, seed=None, vis_delay=0.1):
         self.n_actions = n_actions
         self.seed = seed
         self.vis_delay = vis_delay
@@ -75,7 +75,7 @@ class CrossEntropyAgent(Agent):
                  n_states, 
                  n_trajectories, 
                  q, 
-                 seed, 
+                 seed=None, 
                  vis_delay=0.1
                 ):
         
@@ -148,3 +148,55 @@ class CrossEntropyAgent(Agent):
                 )
 
             self.improve_policy(total_rewards, trajectories)
+
+
+
+class SmoothCrossEntropyAgent(CrossEntropyAgent):
+
+    def __init__(self, 
+                 n_actions, 
+                 n_states, 
+                 n_trajectories, 
+                 q, 
+                 laplace_smoothing_lambda=0,
+                 policy_smoothing_lambda=1,
+                 seed=None, 
+                 vis_delay=0.1
+                ):
+        
+        self.n_actions = n_actions
+        self.n_states = n_states
+        self.n_trajectories = n_trajectories
+        self.q = q
+        self.laplace_smoothing_lambda = laplace_smoothing_lambda
+        self.policy_smoothing_lambda = policy_smoothing_lambda 
+        self.seed = seed
+        self.vis_delay = vis_delay
+
+        self.policy_ = np.ones([self.n_states, self.n_actions]) / self.n_actions
+
+
+    def improve_policy(self, total_rewards, trajectories):
+        quantile = np.quantile(total_rewards, self.q)
+
+        elite_trajectories = [
+            trajectory 
+            for total_reward, trajectory in zip(total_rewards, trajectories) 
+            if total_reward >= quantile
+        ]
+
+        new_policy = np.zeros([self.n_states, self.n_actions])
+
+        for trajectory in elite_trajectories:
+            for state, action in zip(trajectory['states'], trajectory['actions']):
+                new_policy[state, action] += 1
+
+        for state in range(self.n_states):
+            if np.sum(new_policy[state]) > 0:
+                new_policy[state] = (new_policy[state] + self.laplace_smoothing_lambda) / (np.sum(new_policy[state])+ self.laplace_smoothing_lambda * self.n_actions)
+                new_policy[state] = new_policy[state] + (1 - self.policy_smoothing_lambda) * self.policy_[state]
+                new_policy[state] = new_policy[state] / np.sum(new_policy[state])
+            else:
+                new_policy[state] = self.policy_[state].copy()
+
+        self.policy_ = new_policy
